@@ -2,11 +2,17 @@ package benchmarks
 
 var (
 	bmap = BenchMap{
-		"bogus": BogusBenchFunc,
-		"head":  HeadBench,
+		"head": HeadBench,
+	}
+	gwbmap = GwBenchMap{
+		"head2": GwHeadBench,
 	}
 )
 
 func Map() BenchMap {
 	return bmap
+}
+
+func GwMap() GwBenchMap {
+	return gwbmap
 }

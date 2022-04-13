@@ -4,11 +4,9 @@ import (
 	"context"
 	"fmt"
 	"time"
-
-	lapi "github.com/filecoin-project/lotus/api"
 )
 
-func HeadBench(ctx context.Context, delay time.Duration, api lapi.FullNode, r Results) error {
+func recordCount(ctx context.Context, delay time.Duration, method func(context.Context) error, r Results) error {
 	var loopcount = 0
 	var errcount = 0
 	errs := make(chan error, 1)
@@ -25,7 +23,7 @@ func HeadBench(ctx context.Context, delay time.Duration, api lapi.FullNode, r Re
 					errs <- nil
 					return
 				}
-				_, err := api.ChainHead(ctx)
+				err := method(ctx)
 				if err != nil {
 					errcount++
 					fmt.Println(err)

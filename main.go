@@ -14,10 +14,15 @@ func main() {
 		Name:                 "lotus-api-bench",
 		Usage:                "benchmark lotus and the lotus gateway",
 		EnableBashCompletion: true,
-		ArgsUsage:            "benchmark [benchmark]...",
 		Commands: cli.Commands{
 			commands.ListCommand,
 			commands.BenchCommand,
+		},
+		Flags: []cli.Flag{
+			&cli.BoolFlag{
+				Name:    "gateway",
+				Aliases: []string{"gw"},
+			},
 		},
 	}
 	err := app.Run(os.Args)

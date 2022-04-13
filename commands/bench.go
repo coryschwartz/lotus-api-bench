@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/coryschwartz/lotus-api-bench/benchmarks"
+	lapi "github.com/filecoin-project/lotus/api"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
 	"github.com/urfave/cli/v2"
 )
@@ -35,10 +36,10 @@ var BenchCommand = &cli.Command{
 }
 
 func runBenchmarks(cctx *cli.Context) error {
-	bmap := benchmarks.Map()
 	concurrency := cctx.Int("concurrency")
 	timeout := cctx.Duration("timeout")
 	delay := cctx.Duration("delay")
+	ctx, _ := context.WithTimeout(cctx.Context, timeout)
 	var benches []string
 
 	if cctx.NArg() > 0 {
@@ -48,15 +49,60 @@ func runBenchmarks(cctx *cli.Context) error {
 			benches = append(benches, k)
 		}
 	}
-
-	api, closer, err := cliutil.GetFullNodeAPIV1(cctx)
-	if err != nil {
-		return err
+	if cctx.Bool("gateway") {
+		api, _, err := cliutil.GetGatewayAPI(cctx)
+		if err != nil {
+			return nil
+		}
+		return runGatewayBenchmarks(ctx, concurrency, delay, benches, api)
+	} else {
+		api, _, err := cliutil.GetFullNodeAPIV1(cctx)
+		if err != nil {
+			return err
+		}
+		return runFullBenchmarks(ctx, concurrency, delay, benches, api)
 	}
-	defer closer()
+}
 
-	fmt.Println("Running benchmarks:", benches)
+func runGatewayBenchmarks(ctx context.Context, concurrency int, delay time.Duration, benches []string, api lapi.Gateway) error {
+	bmap := benchmarks.GwMap()
+	if len(benches) == 0 {
+		for k := range bmap {
+			benches = append(benches, k)
+		}
+	}
 
+	for _, bench := range benches {
+		bfunc := bmap[bench]
+		f := func(results benchmarks.Results) error {
+			return bfunc(ctx, delay, api, results)
+		}
+		results := runConcurrently(concurrency, f)
+		printResults(results)
+	}
+	return nil
+}
+
+func runFullBenchmarks(ctx context.Context, concurrency int, delay time.Duration, benches []string, api lapi.FullNode) error {
+	bmap := benchmarks.Map()
+	if len(benches) == 0 {
+		for k := range bmap {
+			benches = append(benches, k)
+		}
+	}
+
+	for _, bench := range benches {
+		bfunc := bmap[bench]
+		f := func(results benchmarks.Results) error {
+			return bfunc(ctx, delay, api, results)
+		}
+		results := runConcurrently(concurrency, f)
+		printResults(results)
+	}
+	return nil
+}
+
+func runConcurrently(concurrency int, f func(benchmarks.Results) error) []benchmarks.Results {
 	errs := make(chan error)
 	go func() {
 		for {
@@ -69,31 +115,21 @@ func runBenchmarks(cctx *cli.Context) error {
 		}
 	}()
 
-	ctx, cancel := context.WithTimeout(cctx.Context, timeout)
-	defer cancel()
+	var results []benchmarks.Results
 
-	for _, bench := range benches {
-		fmt.Println(bench)
-		bfunc := bmap[bench]
-		var results []benchmarks.Results
-
-		wg := sync.WaitGroup{}
-		for i := 0; i < concurrency; i++ {
-			wg.Add(1)
-			res := make(benchmarks.Results)
-			results = append(results, res)
-			go func() {
-				errs <- bfunc(ctx, delay, api, res)
-				wg.Done()
-			}()
-		}
-		wg.Wait()
-		printResults(results)
+	wg := sync.WaitGroup{}
+	for i := 0; i < concurrency; i++ {
+		wg.Add(1)
+		res := make(benchmarks.Results)
+		results = append(results, res)
+		go func() {
+			errs <- f(res)
+			wg.Done()
+		}()
 	}
-
-	return nil
+	wg.Wait()
+	return results
 }
-
 func printResults(results []benchmarks.Results) {
 	avgResults := make(benchmarks.Results)
 	for i, res := range results {
