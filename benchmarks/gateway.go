@@ -49,7 +49,7 @@ func InspectMiners(ctx context.Context, delay time.Duration, api lapi.Gateway, r
 
 	ts, err := api.ChainHead(ctx)
 	if err != nil {
-		return fmt.Errorf("could not get head during walk: %w", err)
+		return fmt.Errorf("could not get head during miner inspection: %w", err)
 	}
 	for {
 		start := time.Now()
@@ -76,12 +76,12 @@ func InspectMiners(ctx context.Context, delay time.Duration, api lapi.Gateway, r
 					return nil
 				}
 				go func() {
-					_, err = api.StateMinerInfo(ctx, miner, ts.Key())
+					_, err := api.StateMinerInfo(ctx, miner, ts.Key())
 					if err != nil {
 						atomic.AddInt64(&errcount, 1)
-					} else {
-						atomic.AddInt64(&minerinfo, 1)
+						return
 					}
+					atomic.AddInt64(&minerinfo, 1)
 				}()
 			}
 		}
