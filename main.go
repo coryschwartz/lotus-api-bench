@@ -18,12 +18,6 @@ func main() {
 			commands.ListCommand,
 			commands.BenchCommand,
 		},
-		Flags: []cli.Flag{
-			&cli.BoolFlag{
-				Name:    "gateway",
-				Aliases: []string{"gw"},
-			},
-		},
 	}
 	err := app.Run(os.Args)
 	if err != nil {

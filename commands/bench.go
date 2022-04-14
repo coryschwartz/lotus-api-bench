@@ -2,13 +2,14 @@ package commands
 
 import (
 	"context"
+	"encoding/csv"
 	"fmt"
 	"os"
+	"sort"
 	"sync"
 	"time"
 
 	"github.com/coryschwartz/lotus-api-bench/benchmarks"
-	lapi "github.com/filecoin-project/lotus/api"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
 	"github.com/urfave/cli/v2"
 )
@@ -24,13 +25,21 @@ var BenchCommand = &cli.Command{
 		},
 		&cli.DurationFlag{
 			Name:    "timeout",
+			Usage:   "how long should each test be conducted",
 			Aliases: []string{"t"},
 			Value:   time.Minute,
 		},
+		&cli.IntFlag{
+			Name:    "qps",
+			Usage:   "queries per second to send",
+			Aliases: []string{"q"},
+			Value:   10,
+		},
 		&cli.DurationFlag{
-			Name:    "delay",
-			Aliases: []string{"d"},
-			Value:   time.Millisecond,
+			Name:    "sleep",
+			Usage:   "how long to sleep between each benchmark",
+			Aliases: []string{"s"},
+			Value:   time.Second,
 		},
 	},
 }
@@ -38,8 +47,8 @@ var BenchCommand = &cli.Command{
 func runBenchmarks(cctx *cli.Context) error {
 	concurrency := cctx.Int("concurrency")
 	timeout := cctx.Duration("timeout")
-	delay := cctx.Duration("delay")
-	ctx, _ := context.WithTimeout(cctx.Context, timeout)
+	delay := time.Second / time.Duration(cctx.Int("qps"))
+	sleep := cctx.Duration("sleep")
 	var benches []string
 
 	if cctx.NArg() > 0 {
@@ -49,41 +58,12 @@ func runBenchmarks(cctx *cli.Context) error {
 			benches = append(benches, k)
 		}
 	}
-	if cctx.Bool("gateway") {
-		api, _, err := cliutil.GetGatewayAPI(cctx)
-		if err != nil {
-			return nil
-		}
-		return runGatewayBenchmarks(ctx, concurrency, delay, benches, api)
-	} else {
-		api, _, err := cliutil.GetFullNodeAPIV1(cctx)
-		if err != nil {
-			return err
-		}
-		return runFullBenchmarks(ctx, concurrency, delay, benches, api)
-	}
-}
-
-func runGatewayBenchmarks(ctx context.Context, concurrency int, delay time.Duration, benches []string, api lapi.Gateway) error {
-	bmap := benchmarks.GwMap()
-	if len(benches) == 0 {
-		for k := range bmap {
-			benches = append(benches, k)
-		}
+	sort.Strings(benches)
+	api, _, err := cliutil.GetGatewayAPI(cctx)
+	if err != nil {
+		return nil
 	}
 
-	for _, bench := range benches {
-		bfunc := bmap[bench]
-		f := func(results benchmarks.Results) error {
-			return bfunc(ctx, delay, api, results)
-		}
-		results := runConcurrently(concurrency, f)
-		printResults(results)
-	}
-	return nil
-}
-
-func runFullBenchmarks(ctx context.Context, concurrency int, delay time.Duration, benches []string, api lapi.FullNode) error {
 	bmap := benchmarks.Map()
 	if len(benches) == 0 {
 		for k := range bmap {
@@ -93,11 +73,14 @@ func runFullBenchmarks(ctx context.Context, concurrency int, delay time.Duration
 
 	for _, bench := range benches {
 		bfunc := bmap[bench]
+		ctx, cancel := context.WithTimeout(cctx.Context, timeout)
+		defer cancel()
 		f := func(results benchmarks.Results) error {
 			return bfunc(ctx, delay, api, results)
 		}
 		results := runConcurrently(concurrency, f)
-		printResults(results)
+		printResults(results, bench)
+		time.Sleep(sleep)
 	}
 	return nil
 }
@@ -130,22 +113,26 @@ func runConcurrently(concurrency int, f func(benchmarks.Results) error) []benchm
 	wg.Wait()
 	return results
 }
-func printResults(results []benchmarks.Results) {
-	avgResults := make(benchmarks.Results)
+
+func printResults(results []benchmarks.Results, bench string) {
+	writer := csv.NewWriter(os.Stdout)
+	header := []string{"bench", "worker"}
+	var keys []string
+	for k := range results[0] {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	header = append(header, keys...)
+	writer.Write(header)
+
+	row := make([]string, len(header))
+	row[0] = bench
 	for i, res := range results {
-		fmt.Printf("\n\nRun %d\n", i)
-		for k, v := range res {
-			fmt.Println(k, v)
-			avgv := v / float64(len(results))
-			if c, ok := avgResults[k]; ok {
-				avgResults[k] = c + avgv
-			} else {
-				avgResults[k] = avgv
-			}
+		row[1] = fmt.Sprintf("%d", i)
+		for j, key := range keys {
+			row[j+2] = fmt.Sprintf("%d", res[key])
 		}
+		writer.Write(row)
 	}
-	fmt.Println("Average results:")
-	for k, v := range avgResults {
-		fmt.Println(k, v)
-	}
+	writer.Flush()
 }

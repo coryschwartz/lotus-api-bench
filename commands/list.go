@@ -2,6 +2,7 @@ package commands
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/urfave/cli/v2"
 
@@ -15,15 +16,10 @@ var ListCommand = &cli.Command{
 
 func listBenchmarks(cctx *cli.Context) error {
 	var keys []string
-	if cctx.Bool("gateway") {
-		for k := range benchmarks.GwMap() {
-			keys = append(keys, k)
-		}
-	} else {
-		for k := range benchmarks.Map() {
-			keys = append(keys, k)
-		}
+	for k := range benchmarks.Map() {
+		keys = append(keys, k)
 	}
+	sort.Strings(keys)
 	for _, k := range keys {
 		fmt.Println(k)
 	}
