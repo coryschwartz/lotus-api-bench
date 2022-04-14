@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/coryschwartz/lotus-api-bench/benchmarks"
+	lapi "github.com/filecoin-project/lotus/api"
 	cliutil "github.com/filecoin-project/lotus/cli/util"
 	"github.com/urfave/cli/v2"
 )
@@ -59,10 +60,6 @@ func runBenchmarks(cctx *cli.Context) error {
 		}
 	}
 	sort.Strings(benches)
-	api, _, err := cliutil.GetGatewayAPI(cctx)
-	if err != nil {
-		return nil
-	}
 
 	bmap := benchmarks.Map()
 	if len(benches) == 0 {
@@ -75,17 +72,20 @@ func runBenchmarks(cctx *cli.Context) error {
 		bfunc := bmap[bench]
 		ctx, cancel := context.WithTimeout(cctx.Context, timeout)
 		defer cancel()
-		f := func(results benchmarks.Results) error {
+		f := func(api lapi.Gateway, results benchmarks.Results) error {
 			return bfunc(ctx, delay, api, results)
 		}
-		results := runConcurrently(concurrency, f)
+		results, err := runConcurrently(concurrency, cctx, f)
+		if err != nil {
+			return err
+		}
 		printResults(results, bench)
 		time.Sleep(sleep)
 	}
 	return nil
 }
 
-func runConcurrently(concurrency int, f func(benchmarks.Results) error) []benchmarks.Results {
+func runConcurrently(concurrency int, cctx *cli.Context, f func(lapi.Gateway, benchmarks.Results) error) ([]benchmarks.Results, error) {
 	errs := make(chan error)
 	go func() {
 		for {
@@ -102,16 +102,20 @@ func runConcurrently(concurrency int, f func(benchmarks.Results) error) []benchm
 
 	wg := sync.WaitGroup{}
 	for i := 0; i < concurrency; i++ {
+		api, _, err := cliutil.GetGatewayAPI(cctx)
+		if err != nil {
+			return nil, err
+		}
 		wg.Add(1)
 		res := make(benchmarks.Results)
 		results = append(results, res)
 		go func() {
-			errs <- f(res)
+			errs <- f(api, res)
 			wg.Done()
 		}()
 	}
 	wg.Wait()
-	return results
+	return results, nil
 }
 
 func printResults(results []benchmarks.Results, bench string) {
