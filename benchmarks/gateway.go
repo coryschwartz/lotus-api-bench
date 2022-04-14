@@ -3,12 +3,14 @@ package benchmarks
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"sync/atomic"
 	"time"
 
 	lapi "github.com/filecoin-project/lotus/api"
 )
 
+// run chain head over and over
 func HeadBench(ctx context.Context, delay time.Duration, api lapi.Gateway, r Results) error {
 	var method = func(ctx context.Context) error {
 		_, err := api.ChainHead(ctx)
@@ -17,6 +19,7 @@ func HeadBench(ctx context.Context, delay time.Duration, api lapi.Gateway, r Res
 	return recordCount(ctx, delay, method, r)
 }
 
+// get the genesis tipset over and over
 func GetGenesisBench(ctx context.Context, delay time.Duration, api lapi.Gateway, r Results) error {
 	var method = func(ctx context.Context) error {
 		_, err := api.ChainGetGenesis(ctx)
@@ -25,6 +28,12 @@ func GetGenesisBench(ctx context.Context, delay time.Duration, api lapi.Gateway,
 	return recordCount(ctx, delay, method, r)
 }
 
+// this tends to walk back from head, fetching tipsets.
+// Sometimes multiple goroutines might fetch the same tipset if ts is set to the same value.
+// The goal is just to work out the ChainGetTipset method and reduce any possible caching
+// by frequently changing the tipset being requested.
+// The cache avoidance doesn't work as well when there are multple concurrent routines, since they
+// all walk backward starting from head.
 func WalkBack(ctx context.Context, delay time.Duration, api lapi.Gateway, r Results) error {
 	ts, err := api.ChainHead(ctx)
 	if err != nil {
@@ -41,6 +50,10 @@ func WalkBack(ctx context.Context, delay time.Duration, api lapi.Gateway, r Resu
 	return recordCount(ctx, delay, method, r)
 }
 
+// Work out StateMinerInfo
+// A list of miners is fetched at the start of the benchmark, and then they are looped over in a random
+// order. If multiple concurrent routines are working, they'll work the miners in a different order
+// to minimize caching.
 func InspectMiners(ctx context.Context, delay time.Duration, api lapi.Gateway, r Results) error {
 	var minerlist int64
 	var minerlistsecs int64
@@ -61,6 +74,12 @@ func InspectMiners(ctx context.Context, delay time.Duration, api lapi.Gateway, r
 			atomic.AddInt64(&minerlist, 1)
 			atomic.AddInt64(&minerlistsecs, int64(end.Second()-start.Second()))
 		}
+
+		// Don't lookup the same miners as other routines or past runs.
+		rand.Seed(time.Now().UnixNano())
+		rand.Shuffle(len(miners), func(i, j int) {
+			miners[i], miners[j] = miners[j], miners[i]
+		})
 
 		// loop over every miner and get info
 		ticker := time.NewTicker(delay)
