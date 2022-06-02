@@ -1,0 +1,13 @@
+START=$1
+END=$2
+
+N=$START
+while [ N < $END ]
+do
+N=$((N + N))
+kubectl -n gatewayv2-test delete -f job.yaml
+date
+echo starting job with $N
+yq "(.spec.parallelism, .spec.completions) = $N" <job.yaml  | kubectl apply -n gatewayv2-test -f -
+sleep 600
+done

@@ -1,0 +1,23 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: lotus-api-bench
+spec:
+  parallelism: 1
+  completions: 1
+  template:
+    spec:
+      containers:
+      - name: lotus-api-bench
+        image: coryschwartz/lotus-api-bench:latest
+        env:
+          - name: FULLNODE_API_INFO
+            value: ws://gwv2-gwtest-0:2346
+        command:
+          - /lotus-api-bench
+          - bench
+          - -t
+          - 5m
+          - head
+      restartPolicy: Never
+  backoffLimit: 4
